@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ApkaPG Vobiz Calling Console</title>
+  <style>
+    :root {
+      --bg: #f4f6f9; --surface: #ffffff; --border: #dfe4ec; --text: #1b2430; --muted: #5c6778;
+      --primary: #2563eb; --primary-hover: #1d4ed8;
+      --success-bg: #e7f8ee; --success-text: #137333;
+      --warn-bg: #fef4e6; --warn-text: #b45309;
+      --danger-bg: #fdecec; --danger-text: #b91c1c;
+      --info-bg: #ebf2fe; --info-text: #1e40af;
+      --neutral-bg: #eef1f5; --neutral-text: #475569;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.45; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-bottom: 18px; }
+    header h1 { margin: 0; font-size: 1.25rem; }
+    .subtitle { margin: 2px 0 0; font-size: 0.85rem; color: var(--muted); }
+    .status-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--neutral-bg); color: var(--neutral-text); }
+    .pill.ok { background: var(--success-bg); color: var(--success-text); }
+    .pill.warn { background: var(--warn-bg); color: var(--warn-text); }
+    .pill.err { background: var(--danger-bg); color: var(--danger-text); }
+    .pill.info { background: var(--info-bg); color: var(--info-text); }
+    .grid-top { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-bottom: 18px; }
+    @media (max-width: 900px) { .grid-top { grid-template-columns: 1fr; } }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 18px; }
+    .card h2 { margin: 0 0 14px; font-size: 1.05rem; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field.full { grid-column: 1 / -1; }
+    label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+    input, select, textarea { padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.9rem; font-family: inherit; background: #fff; color: var(--text); }
+    textarea { resize: vertical; min-height: 110px; }
+    button, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 14px; border-radius: 7px; border: 1px solid transparent; font-size: 0.86rem; font-weight: 600; cursor: pointer; text-decoration: none; background: var(--neutral-bg); color: var(--text); }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-outline { background: #fff; border-color: var(--border); color: var(--text); }
+    .btn-danger { background: var(--danger-bg); color: var(--danger-text); border-color: #f8c6c6; }
+    .btn-sm { padding: 5px 10px; font-size: 0.78rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .stat-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+    .stat-label { font-size: 0.78rem; color: var(--muted); }
+    .stat-value { font-size: 1.5rem; font-weight: 700; margin-top: 2px; }
+    .alert { padding: 10px 12px; border-radius: 7px; font-size: 0.86rem; margin-top: 12px; display: none; }
+    .alert.show { display: block; }
+    .alert.ok { background: var(--success-bg); color: var(--success-text); }
+    .alert.err { background: var(--danger-bg); color: var(--danger-text); }
+    .alert.info { background: var(--info-bg); color: var(--info-text); }
+    .tabs { display: flex; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid var(--border); padding-bottom: 10px; flex-wrap: wrap; }
+    .tab-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 7px 14px; border-radius: 7px; font-weight: 600; cursor: pointer; }
+    .tab-btn.active { background: var(--info-bg); color: var(--info-text); border-color: #c7d9fc; }
+    .toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: #fff; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: var(--bg); color: var(--muted); font-size: 0.77rem; text-transform: uppercase; white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    .empty { text-align: center; padding: 28px; color: var(--muted); }
+    .batch-split { display: grid; grid-template-columns: 1fr 1.2fr; gap: 18px; align-items: start; }
+    @media (max-width: 900px) { .batch-split { grid-template-columns: 1fr; } }
+    dialog { border: 1px solid var(--border); border-radius: 10px; padding: 0; max-width: 680px; width: 92%; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
+    dialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+    .modal-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-weight: 700; }
+    .modal-body { padding: 16px 18px; max-height: 70vh; overflow: auto; }
+    pre { margin: 0; background: var(--bg); padding: 12px; border-radius: 7px; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>ApkaPG Vobiz Calling Console</h1>
+        <p class="subtitle">Play recording &amp; capture pickup status + caller input</p>
+      </div>
+      <div class="status-bar">
+        <span id="modePill" class="pill">Checking...</span>
+        <span id="vobizPill" class="pill">Vobiz: ...</span>
+        <span id="capturePill" class="pill">Capture: ...</span>
+        <button id="refreshAllBtn" class="btn btn-outline btn-sm" type="button">Refresh</button>
+        <a class="btn btn-outline btn-sm" href="/docs" target="_blank" rel="noopener">API Docs</a>
+      </div>
+    </header>
+
+    <div class="grid-top">
+      <section class="card" style="margin-bottom:0;">
+        <h2>Initiate Single Call</h2>
+        <form id="callForm">
+          <div class="form-grid">
+            <div class="field">
+              <label for="phoneInput">Phone Number *</label>
+              <input id="phoneInput" type="text" placeholder="e.g. 9876543210" required />
+            </div>
+            <div class="field">
+              <label for="ownerInput">Owner Name (optional)</label>
+              <input id="ownerInput" type="text" placeholder="Optional label" />
+            </div>
+            <div class="field">
+              <label for="pgInput">PG Name (optional)</label>
+              <input id="pgInput" type="text" placeholder="Optional label" />
+            </div>
+            <div class="field">
+              <label for="campaignInput">Campaign ID (optional)</label>
+              <input id="campaignInput" type="text" placeholder="e.g. blr-nov" />
+            </div>
+          </div>
+          <div class="actions">
+            <button id="callSubmitBtn" class="btn btn-primary" type="submit">Start Outbound Call</button>
+          </div>
+          <div id="callBanner" class="alert"></div>
+        </form>
+      </section>
+
+      <section class="card" style="margin-bottom:0;">
+        <h2>Overview</h2>
+        <div class="stats-grid">
+          <div class="stat-box"><div class="stat-label">Total Calls</div><div id="statCalls" class="stat-value">0</div></div>
+          <div class="stat-box"><div class="stat-label">Saved Leads</div><div id="statLeads" class="stat-value">0</div></div>
+          <div class="stat-box"><div class="stat-label">Picked Up</div><div id="statPicked" class="stat-value">0</div></div>
+          <div class="stat-box"><div class="stat-label">User Inputs Saved</div><div id="statInputs" class="stat-value">0</div></div>
+        </div>
+        <div class="actions" style="margin-top:16px;">
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+            <input id="autoRefreshChk" type="checkbox" checked /> Auto-refresh every 5s
+          </label>
+        </div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="tabs">
+        <button id="tabLeadsBtn" class="tab-btn active" type="button">Collected Leads</button>
+        <button id="tabCallsBtn" class="tab-btn" type="button">Call History</button>
+        <button id="tabBatchesBtn" class="tab-btn" type="button">Automated Batch Calling</button>
+      </div>
+
+      <div id="leadsPanel">
+        <div class="toolbar">
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label for="pickedFilter">Filter:</label>
+            <select id="pickedFilter">
+              <option value="">All Calls</option>
+              <option value="true">Picked Up Only</option>
+              <option value="false">Not Picked Up Only</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <a id="exportJsonLink" class="btn btn-outline btn-sm" href="/api/leads/export/json">Download JSON</a>
+            <a id="exportCsvLink" class="btn btn-outline btn-sm" href="/api/leads/export/csv">Download CSV</a>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Call ID</th>
+                <th>Phone</th>
+                <th>Owner / PG</th>
+                <th>Picked Up</th>
+                <th>User Input / Recording</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="leadsTableBody"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="callsPanel" style="display:none;">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Call ID</th><th>Phone</th><th>Owner / PG</th><th>Status</th><th>Duration</th><th>Updated</th><th>Events</th></tr>
+            </thead>
+            <tbody id="callsTableBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="batchesPanel" style="display:none;">
+        <div class="batch-split">
+          <form id="batchForm">
+            <div class="form-grid">
+              <div class="field"><label for="batchCampaignInput">Batch / Campaign ID</label><input id="batchCampaignInput" type="text" placeholder="e.g. batch-01" /></div>
+              <div class="field"><label for="batchDelayInput">Gap Between Calls (sec)</label><input id="batchDelayInput" type="number" min="0" max="120" value="3" /></div>
+              <div class="field full"><label for="batchFileInput">Upload CSV File (optional)</label><input id="batchFileInput" type="file" accept=".csv,.txt" /></div>
+              <div class="field full"><label for="batchTextInput">Or Paste Numbers / CSV</label><textarea id="batchTextInput" placeholder="phone_number,owner_name,pg_name&#10;9876543210,Ramesh,Sunrise PG&#10;9876543211"></textarea></div>
+            </div>
+            <div class="actions"><button id="batchSubmitBtn" class="btn btn-primary" type="submit">Start Sequential Batch</button></div>
+            <div id="batchBanner" class="alert"></div>
+          </form>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Batch ID</th><th>Status</th><th>Progress</th><th>Controls</th></tr></thead>
+              <tbody id="batchesTableBody"><tr><td colspan="4" class="empty">No batches started yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="detailDialog">
+    <div class="modal-head"><span id="detailTitle">Details</span><button id="closeDialogBtn" class="btn btn-outline btn-sm" type="button">Close</button></div>
+    <div class="modal-body"><pre id="detailContent"></pre></div>
+  </dialog>
+
+  <script>
+    function esc(v) { if (v === null || v === undefined) return ""; const d = document.createElement("div"); d.textContent = String(v); return d.innerHTML; }
+    function showBanner(el, type, msg) { el.className = "alert show " + type; el.textContent = msg; }
+    function hideBanner(el) { el.className = "alert"; el.textContent = ""; }
+    function pill(t, v) { return '<span class="pill ' + (v || "") + '">' + esc(t) + "</span>"; }
+    function statusVariant(s) {
+      if (s === "completed" || s === "answered") return "ok";
+      if (s === "ringing" || s === "initiated" || s === "in_progress" || s === "running") return "info";
+      if (s === "busy" || s === "unanswered" || s === "paused") return "warn";
+      if (s === "failed" || s === "canceled" || s === "stopped") return "err";
+      return "";
+    }
+    async function fetchJson(url, opts) {
+      const res = await fetch(url, opts || {});
+      const raw = await res.text();
+      let data = null; try { data = raw ? JSON.parse(raw) : null; } catch { data = { detail: raw }; }
+      if (!res.ok) throw new Error((data && data.detail) || ("HTTP " + res.status));
+      return data;
+    }
+
+    async function loadStatus() {
+      try {
+        const s = await fetchJson("/api/system/status");
+        const m = document.getElementById("modePill");
+        m.className = s.mock_providers ? "pill warn" : "pill ok";
+        m.textContent = s.mock_providers ? "MOCK MODE" : "LIVE VOBIZ";
+
+        const v = document.getElementById("vobizPill");
+        v.className = s.vobiz.ready ? "pill ok" : "pill warn";
+        v.textContent = s.vobiz.ready ? "Vobiz: Ready" : "Vobiz: Setup Needed";
+
+        const c = document.getElementById("capturePill");
+        c.className = "pill info";
+        c.textContent = "Capture: " + s.vobiz.capture_mode;
+      } catch {}
+    }
+
+    async function loadLeads() {
+      const pf = document.getElementById("pickedFilter").value;
+      const qs = pf ? "?picked_up=" + encodeURIComponent(pf) : "";
+      document.getElementById("exportJsonLink").href = "/api/leads/export/json" + qs;
+      document.getElementById("exportCsvLink").href = "/api/leads/export/csv" + qs;
+      const tbody = document.getElementById("leadsTableBody");
+      try {
+        const data = await fetchJson("/api/leads" + qs);
+        const leads = data.leads || [];
+        if (!pf) {
+          document.getElementById("statLeads").textContent = leads.length;
+          document.getElementById("statPicked").textContent = leads.filter(function(l) { return l.picked_up; }).length;
+          document.getElementById("statInputs").textContent = leads.filter(function(l) { return l.user_input || l.recording_file; }).length;
+        }
+        if (!leads.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No leads yet.</td></tr>'; return; }
+        tbody.innerHTML = leads.map(function(l) {
+          const label = [l.owner_name, l.pg_name].filter(Boolean).join(" / ") || "-";
+          const inputDisplay = l.user_input || (l.recording_file ? "Audio: " + l.recording_file : "-");
+          const dur = l.call_duration_seconds != null ? l.call_duration_seconds + "s" : "-";
+          return "<tr>" +
+            "<td><strong>" + esc(l.call_id) + "</strong></td>" +
+            "<td>" + esc(l.phone_number) + "</td>" +
+            "<td>" + esc(label) + "</td>" +
+            "<td>" + (l.picked_up ? pill("Yes", "ok") : pill("No", "err")) + "</td>" +
+            "<td>" + esc(inputDisplay) + "</td>" +
+            "<td>" + pill(l.call_status || "-", statusVariant(l.call_status)) + "</td>" +
+            "<td>" + dur + "</td>" +
+            '<td><button class="btn btn-outline btn-sm" type="button" onclick=\'openDetail("Lead ' + esc(l.call_id) + '", ' + JSON.stringify(l) + ")\'>View</button></td>" +
+            "</tr>";
+        }).join("");
+      } catch (e) { tbody.innerHTML = '<tr><td colspan="8" class="empty">' + esc(e.message) + "</td></tr>"; }
+    }
+
+    async function loadCalls() {
+      const tbody = document.getElementById("callsTableBody");
+      try {
+        const data = await fetchJson("/api/calls");
+        const calls = data.calls || [];
+        document.getElementById("statCalls").textContent = calls.length;
+        if (!calls.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">No calls yet.</td></tr>'; return; }
+        tbody.innerHTML = calls.map(function(c) {
+          const label = [c.owner_name, c.pg_name].filter(Boolean).join(" / ") || "-";
+          const dur = c.duration_seconds != null ? c.duration_seconds + "s" : "-";
+          return "<tr>" +
+            "<td><strong>" + esc(c.call_id) + "</strong></td>" +
+            "<td>" + esc(c.phone_number) + "</td>" +
+            "<td>" + esc(label) + "</td>" +
+            "<td>" + pill(c.status, statusVariant(c.status)) + "</td>" +
+            "<td>" + dur + "</td>" +
+            "<td>" + esc(new Date(c.updated_at).toLocaleString()) + "</td>" +
+            '<td><button class="btn btn-outline btn-sm" type="button" onclick=\'openDetail("Call ' + esc(c.call_id) + '", ' + JSON.stringify(c) + ")\'>Events</button></td>" +
+            "</tr>";
+        }).join("");
+      } catch (e) { tbody.innerHTML = '<tr><td colspan="7" class="empty">' + esc(e.message) + "</td></tr>"; }
+    }
+
+    async function loadBatches() {
+      const tbody = document.getElementById("batchesTableBody");
+      try {
+        const data = await fetchJson("/api/batches");
+        const batches = data.batches || [];
+        if (!batches.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">No batches yet.</td></tr>'; return; }
+        tbody.innerHTML = batches.map(function(entry) {
+          const batch = entry.batch;
+          const summary = entry.summary;
+          const st = batch.status;
+          const btns = [];
+          if (st === "running") btns.push('<button class="btn btn-outline btn-sm" type="button" onclick=\'batchAction("' + esc(batch.batch_id) + '","pause")\'>Pause</button>');
+          if (st === "paused") btns.push('<button class="btn btn-outline btn-sm" type="button" onclick=\'batchAction("' + esc(batch.batch_id) + '","resume")\'>Resume</button>');
+          if (st === "running" || st === "paused" || st === "pending") btns.push('<button class="btn btn-danger btn-sm" type="button" onclick=\'batchAction("' + esc(batch.batch_id) + '","stop")\'>Stop</button>');
+          btns.push('<button class="btn btn-outline btn-sm" type="button" onclick=\'openDetail("Batch ' + esc(batch.batch_id) + '", ' + JSON.stringify(batch) + ")\'>View</button>");
+          return "<tr>" +
+            "<td><strong>" + esc(batch.batch_id) + "</strong></td>" +
+            "<td>" + pill(st, statusVariant(st)) + "</td>" +
+            "<td>" + summary.completed + "/" + summary.total + " done" + (summary.failed ? " (" + summary.failed + " failed)" : "") + "</td>" +
+            '<td style="display:flex;gap:6px;flex-wrap:wrap;">' + btns.join("") + "</td>" +
+            "</tr>";
+        }).join("");
+      } catch {}
+    }
+
+    async function batchAction(id, act) {
+      const b = document.getElementById("batchBanner");
+      try { await fetchJson("/ui/batches/" + encodeURIComponent(id) + "/" + act, { method: "POST" }); showBanner(b, "info", id + ": " + act); await refreshAll(); }
+      catch (e) { showBanner(b, "err", e.message); }
+    }
+    function openDetail(t, p) { document.getElementById("detailTitle").textContent = t; document.getElementById("detailContent").textContent = JSON.stringify(p, null, 2); document.getElementById("detailDialog").showModal(); }
+    document.getElementById("closeDialogBtn").addEventListener("click", function() { document.getElementById("detailDialog").close(); });
+
+    document.getElementById("callForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById("callSubmitBtn"), b = document.getElementById("callBanner");
+      hideBanner(b); btn.disabled = true; btn.textContent = "Initiating...";
+      try {
+        const res = await fetchJson("/ui/calls/initiate", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone_number: document.getElementById("phoneInput").value.trim(),
+            owner_name: document.getElementById("ownerInput").value.trim() || null,
+            pg_name: document.getElementById("pgInput").value.trim() || null,
+            campaign_id: document.getElementById("campaignInput").value.trim() || null,
+          }),
+        });
+        showBanner(b, "ok", "Call initiated: " + res.call.call_id + " (" + res.call.status + ")");
+        document.getElementById("phoneInput").value = "";
+        await refreshAll();
+      } catch (err) { showBanner(b, "err", err.message); }
+      finally { btn.disabled = false; btn.textContent = "Start Outbound Call"; }
+    });
+
+    document.getElementById("batchForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById("batchSubmitBtn"), b = document.getElementById("batchBanner");
+      hideBanner(b);
+      const fileInput = document.getElementById("batchFileInput");
+      let content = document.getElementById("batchTextInput").value.trim();
+      if (fileInput.files && fileInput.files.length > 0) content = await fileInput.files[0].text();
+      if (!content.trim()) { showBanner(b, "err", "Select a CSV or paste numbers first."); return; }
+      btn.disabled = true;
+      try {
+        const res = await fetchJson("/ui/batches", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            campaign_id: document.getElementById("batchCampaignInput").value.trim() || null,
+            delay_seconds: parseInt(document.getElementById("batchDelayInput").value || "3", 10),
+            csv_content: content, auto_start: true,
+          }),
+        });
+        showBanner(b, "ok", "Started " + res.batch.batch_id + " (" + res.summary.total + " numbers).");
+        fileInput.value = ""; await refreshAll();
+      } catch (err) { showBanner(b, "err", err.message); }
+      finally { btn.disabled = false; }
+    });
+
+    const tabs = [
+      [document.getElementById("tabLeadsBtn"), document.getElementById("leadsPanel")],
+      [document.getElementById("tabCallsBtn"), document.getElementById("callsPanel")],
+      [document.getElementById("tabBatchesBtn"), document.getElementById("batchesPanel")],
+    ];
+    tabs.forEach(function(pair) {
+      pair[0].addEventListener("click", function() {
+        tabs.forEach(function(other) {
+          other[0].classList.toggle("active", other[0] === pair[0]);
+          other[1].style.display = (other[1] === pair[1]) ? "block" : "none";
+        });
+      });
+    });
+
+    document.getElementById("pickedFilter").addEventListener("change", loadLeads);
+    document.getElementById("refreshAllBtn").addEventListener("click", refreshAll);
+    let timer = setInterval(refreshAll, 5000);
+    document.getElementById("autoRefreshChk").addEventListener("change", function(e) {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (e.target.checked) timer = setInterval(refreshAll, 5000);
+    });
+
+    async function refreshAll() { await Promise.all([loadStatus(), loadLeads(), loadCalls(), loadBatches()]); }
+    refreshAll();
+  </script>
+</body>
+</html>

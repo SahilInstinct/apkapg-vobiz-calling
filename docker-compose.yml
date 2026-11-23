@@ -1,0 +1,13 @@
+services:
+  vobiz-calling:
+    build: .
+    container_name: apkapg-vobiz-calling
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      UI_ALLOW_DOCKER_BRIDGE: ${UI_ALLOW_DOCKER_BRIDGE:-true}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
