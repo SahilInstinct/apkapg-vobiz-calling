@@ -81,7 +81,7 @@ class VobizService:
         host = (parsed.hostname or "").lower()
         if host in {"localhost", "127.0.0.1", "0.0.0.0"}:
             raise VobizError(
-                "PUBLIC_BASE_URL cannot be localhost/127.0.0.1. Use your ngrok/Cloudflare/Azure HTTPS URL.",
+                "PUBLIC_BASE_URL cannot be localhost/127.0.0.1. Use your Cloudflare/Azure HTTPS URL.",
                 status_code=400,
             )
         return base
@@ -232,12 +232,16 @@ class VobizService:
         action_url = quoteattr(
             self._public_url("/api/vobiz/gather", {"call_id": call_id})
         )
+        interim_url = quoteattr(
+            self._public_url("/api/vobiz/gather-interim", {"call_id": call_id})
+        )
         language = quoteattr(self.settings.vobiz_speech_language)
         return (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             "<Response>\n"
             f'  <Gather action={action_url} method="POST" inputType="speech" '
-            f'speechModel="phone_call" language={language} executionTimeout="15" speechEndTimeout="auto">\n'
+            f'speechModel="default" language={language} executionTimeout="30" '
+            f'speechEndTimeout="auto" interimSpeechResultsCallback={interim_url}>\n'
             f"    <Play>{intro_url}</Play>\n"
             "  </Gather>\n"
             "  <Hangup/>\n"
