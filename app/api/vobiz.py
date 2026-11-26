@@ -46,7 +46,7 @@ async def _parse_vobiz_params(request: Request) -> dict[str, Any]:
     return merged
 
 
-@router.get("/audio/{filename}")
+@router.api_route("/audio/{filename}", methods=["GET", "HEAD"])
 async def serve_audio_file(filename: str, settings: Settings = Depends(get_settings)) -> FileResponse:
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename.")
@@ -103,28 +103,6 @@ async def vobiz_answer_webhook(
     return Response(content=xml_body, media_type="application/xml")
 
 
-@router.api_route("/gather-interim", methods=["GET", "POST"], dependencies=[Depends(_verify_vobiz_token)])
-async def vobiz_gather_interim_webhook(
-    request: Request,
-    call_id: str | None = Query(default=None),
-    service: CallingService = Depends(get_calling_service),
-) -> dict[str, Any]:
-    """Receive streaming partial speech transcripts while caller speaks."""
-    params = await _parse_vobiz_params(request)
-    logger.info(
-        "Vobiz /gather-interim (%s): call_id=%s params=%s",
-        request.method,
-        call_id or params.get("call_id"),
-        {k: v for k, v in params.items() if k != "token"},
-    )
-    if params.get("Speech") or params.get("Transcript"):
-        try:
-            service.save_speech_input(call_id=call_id or params.get("call_id"), form_data=params)
-        except CallNotFoundError:
-            pass
-    return {"received": True}
-
-
 @router.api_route("/gather", methods=["GET", "POST"], dependencies=[Depends(_verify_vobiz_token)])
 async def vobiz_gather_webhook(
     request: Request,
@@ -145,30 +123,7 @@ async def vobiz_gather_webhook(
     except CallNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return Response(
-        content=VobizService(settings=settings).build_after_capture_xml(),
-        media_type="application/xml",
-    )
-
-
-@router.api_route("/recording-action", methods=["GET", "POST"], dependencies=[Depends(_verify_vobiz_token)])
-async def vobiz_recording_action_webhook(
-    request: Request,
-    call_id: str | None = Query(default=None),
-    service: CallingService = Depends(get_calling_service),
-    settings: Settings = Depends(get_settings),
-) -> Response:
-    params = await _parse_vobiz_params(request)
-    logger.info("Vobiz /recording-action callback: call_id=%s RecordUrl=%s", call_id or params.get("call_id"), params.get("RecordUrl"))
-    if params.get("RecordUrl"):
-        try:
-            await service.save_recording_input(
-                call_id=call_id or params.get("call_id"),
-                form_data=params,
-            )
-        except (CallNotFoundError, VobizError):
-            pass
-    return Response(
-        content=VobizService(settings=settings).build_after_capture_xml(),
+        content=VobizService(settings=settings).build_after_capture_xml(call_record=call_record),
         media_type="application/xml",
     )
 
