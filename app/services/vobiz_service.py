@@ -316,6 +316,9 @@ class VobizService:
         action_url = quoteattr(
             self._public_url("/api/vobiz/gather", {"call_id": call_id})
         )
+        interim_url = quoteattr(
+            self._public_url("/api/vobiz/gather-interim", {"call_id": call_id})
+        )
         language = quoteattr(self.settings.vobiz_speech_language)
         # Vobiz <Gather> executionTimeout allowed range is 5..60 seconds
         gather_timeout = max(5, min(60, self.settings.vobiz_no_input_timeout))
@@ -324,9 +327,9 @@ class VobizService:
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             "<Response>\n"
             f'  <Gather action={action_url} method="POST" inputType="speech" '
-            f'speechModel="default" language={language} executionTimeout="{gather_timeout}" '
-            f"speechEndTimeout={speech_end}>\n"
-            f"    {prompt_xml}\n"
+            f'speechModel="default" language={language} executionTimeout="30" '
+            f'speechEndTimeout="auto" interimSpeechResultsCallback={interim_url}>\n'
+            f"    <Play>{intro_url}</Play>\n"
             "  </Gather>\n"
             "  <Hangup/>\n"
             "</Response>\n"
