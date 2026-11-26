@@ -1,7 +1,8 @@
-"""Vobiz REST API client, VobizXML generator, recording downloader, and status mapper."""
+"""Vobiz REST API client, dynamic <Speak>/<Play> VobizXML generator, and status mapper."""
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import urlencode, urlparse
 from xml.sax.saxutils import escape, quoteattr
@@ -9,7 +10,7 @@ from xml.sax.saxutils import escape, quoteattr
 import httpx
 
 from app.config import Settings
-from app.models.call import CallStatus
+from app.models.call import CallRecord, CallStatus
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -35,6 +36,8 @@ _STATUS_MAP: dict[str, CallStatus] = {
     "canceled": CallStatus.CANCELED,
     "cancelled": CallStatus.CANCELED,
 }
+
+_PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 
 
 class VobizError(Exception):
@@ -81,7 +84,7 @@ class VobizService:
         host = (parsed.hostname or "").lower()
         if host in {"localhost", "127.0.0.1", "0.0.0.0"}:
             raise VobizError(
-                "PUBLIC_BASE_URL cannot be localhost/127.0.0.1. Use your ngrok/Cloudflare/Azure HTTPS URL.",
+                "PUBLIC_BASE_URL cannot be localhost/127.0.0.1. Use your Cloudflare/Azure HTTPS URL.",
                 status_code=400,
             )
         return base
@@ -95,6 +98,46 @@ class VobizService:
         qs = f"?{urlencode(query)}" if query else ""
         return f"{base}{path}{qs}"
 
+    @staticmethod
+    def render_script_template(template: str, call_record: CallRecord | None = None) -> str:
+        """Render a TTS script with {owner_name}, {pg_name}, {notes}, {phone_number}."""
+        owner = (call_record.owner_name or "").strip() if call_record else ""
+        pg = (call_record.pg_name or "").strip() if call_record else ""
+        notes = (call_record.notes or "").strip() if call_record else ""
+        phone = (call_record.phone_number or "").strip() if call_record else ""
+
+        cleaned = template.strip()
+        if cleaned.upper() == "AUTO":
+            greeting = f"Hello {owner}" if owner else "Hello"
+            pg_part = f" regarding {pg}" if pg else ""
+            return (
+                f"{greeting}, this is calling from ApkaPG{pg_part}. "
+                "Am I speaking with the PG owner or manager?"
+            )
+
+        values = {
+            "owner_name": owner,
+            "pg_name": pg,
+            "notes": notes,
+            "phone_number": phone,
+        }
+
+        def _replace(match: re.Match) -> str:
+            return values.get(match.group(1), "")
+
+        rendered = _PLACEHOLDER_RE.sub(_replace, cleaned)
+        rendered = re.sub(r"\s{2,}", " ", rendered)
+        rendered = re.sub(r"\s+([,.\?!])", r"\1", rendered)
+        return rendered.strip()
+
+    def resolve_intro_speak_text(self, call_record: CallRecord | None = None) -> str | None:
+        if call_record and call_record.script:
+            return self.render_script_template(call_record.script, call_record)
+        configured = self.settings.vobiz_intro_text.strip().strip('"').strip("'")
+        if configured:
+            return self.render_script_template(configured, call_record)
+        return None
+
     def resolve_intro_audio_url(self) -> str:
         explicit = self.settings.vobiz_intro_audio_url.strip().strip('"').strip("'")
         if explicit:
@@ -104,9 +147,15 @@ class VobizService:
             base = self._clean_public_base_url()
             return f"{base}/api/vobiz/audio/intro.mp3"
         raise VobizError(
-            "No intro recording found. Set VOBIZ_INTRO_AUDIO_URL or place intro.mp3 in data/audio/.",
+            "No intro script or audio found. Set VOBIZ_INTRO_TEXT in .env or place intro.mp3 in data/audio/.",
             status_code=400,
         )
+
+    def resolve_thankyou_speak_text(self, call_record: CallRecord | None = None) -> str | None:
+        configured = self.settings.vobiz_thankyou_text.strip().strip('"').strip("'")
+        if configured:
+            return self.render_script_template(configured, call_record)
+        return None
 
     def resolve_thankyou_audio_url(self) -> str | None:
         explicit = self.settings.vobiz_thankyou_audio_url.strip().strip('"').strip("'")
@@ -121,17 +170,23 @@ class VobizService:
                 return None
         return None
 
+    def _has_global_intro(self) -> bool:
+        return bool(
+            self.settings.vobiz_intro_text.strip()
+            or self.settings.vobiz_intro_audio_url.strip()
+            or (self.settings.audio_dir / "intro.mp3").exists()
+        )
+
     def get_status_summary(self) -> dict[str, Any]:
-        intro_exists = bool(self.settings.vobiz_intro_audio_url.strip()) or (
-            self.settings.audio_dir / "intro.mp3"
-        ).exists()
+        intro_ready = self._has_global_intro()
+        prompt_type = "speak_tts" if self.settings.vobiz_intro_text.strip() else "audio_mp3"
         ready = all(
             [
                 bool(self.settings.vobiz_auth_id.strip()),
                 bool(self.settings.vobiz_auth_token.strip()),
                 bool(self.settings.vobiz_caller_id.strip()),
                 bool(self.settings.public_base_url.strip()),
-                intro_exists,
+                intro_ready,
             ]
         )
         return {
@@ -139,7 +194,8 @@ class VobizService:
             "auth_token_configured": bool(self.settings.vobiz_auth_token.strip()),
             "caller_id_configured": bool(self.settings.vobiz_caller_id.strip()),
             "public_base_url_configured": bool(self.settings.public_base_url.strip()),
-            "intro_audio_configured": intro_exists,
+            "intro_configured": intro_ready,
+            "prompt_type": prompt_type,
             "capture_mode": self.settings.vobiz_capture_mode,
             "ready": ready,
         }
@@ -162,13 +218,16 @@ class VobizService:
         self,
         call_id: str,
         phone_number: str,
+        has_custom_script: bool = False,
     ) -> VobizCallTriggerResult:
         headers = self._auth_headers()
         caller_id = self.settings.vobiz_caller_id.strip().strip('"').strip("'")
         if not caller_id:
             raise VobizError("VOBIZ_CALLER_ID must be set in .env.", status_code=400)
 
-        self.resolve_intro_audio_url()
+        if not has_custom_script and not self.settings.vobiz_intro_text.strip():
+            self.resolve_intro_audio_url()
+
         base = self._clean_public_base_url()
         logger.info("Triggering Vobiz call %s using public base %s", call_id, base)
 
@@ -210,22 +269,47 @@ class VobizService:
             raw_response=data,
         )
 
-    def build_answer_xml(self, call_id: str) -> str:
+    def _build_prompt_element(self, call_record: CallRecord | None = None) -> str:
+        speak_text = self.resolve_intro_speak_text(call_record)
+        if speak_text:
+            voice = quoteattr(self.settings.vobiz_speak_voice)
+            lang = quoteattr(self.settings.vobiz_speech_language)
+            return f'<Speak voice={voice} language={lang} loop="1">{escape(speak_text)}</Speak>'
         intro_url = escape(self.resolve_intro_audio_url())
+        return f"<Play>{intro_url}</Play>"
+
+    def _build_closing_elements(self, call_record: CallRecord | None = None) -> list[str]:
+        thankyou_text = self.resolve_thankyou_speak_text(call_record)
+        if thankyou_text:
+            voice = quoteattr(self.settings.vobiz_speak_voice)
+            lang = quoteattr(self.settings.vobiz_speech_language)
+            return [
+                f'<Speak voice={voice} language={lang} loop="1">{escape(thankyou_text)}</Speak>',
+                "<Hangup/>",
+            ]
+        thankyou_url = self.resolve_thankyou_audio_url()
+        if thankyou_url:
+            return [f"<Play>{escape(thankyou_url)}</Play>", "<Hangup/>"]
+        return ["<Hangup/>"]
+
+    def build_answer_xml(self, call_id: str, call_record: CallRecord | None = None) -> str:
+        prompt_xml = self._build_prompt_element(call_record)
+
         if self.settings.vobiz_capture_mode == "record_audio":
-            action_url = quoteattr(
-                self._public_url("/api/vobiz/recording-action", {"call_id": call_id})
-            )
             callback_url = quoteattr(
                 self._public_url("/api/vobiz/recording-ready", {"call_id": call_id})
             )
+            silence_timeout = max(2, min(60, self.settings.vobiz_no_input_timeout))
+            max_len = self.settings.vobiz_max_record_seconds
+            closing = "\n  ".join(self._build_closing_elements(call_record))
             return (
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 "<Response>\n"
-                f"  <Play>{intro_url}</Play>\n"
-                f'  <Record action={action_url} method="POST" callbackUrl={callback_url} callbackMethod="POST" '
-                'fileFormat="mp3" maxLength="30" timeout="5" playBeep="false" finishOnKey="#"/>\n'
-                "  <Hangup/>\n"
+                f"  {prompt_xml}\n"
+                f'  <Record callbackUrl={callback_url} callbackMethod="POST" '
+                f'fileFormat="mp3" maxLength="{max_len}" timeout="{silence_timeout}" '
+                'playBeep="false" finishOnKey="#"/>\n'
+                f"  {closing}\n"
                 "</Response>\n"
             )
 
@@ -233,28 +317,24 @@ class VobizService:
             self._public_url("/api/vobiz/gather", {"call_id": call_id})
         )
         language = quoteattr(self.settings.vobiz_speech_language)
+        # Vobiz <Gather> executionTimeout allowed range is 5..60 seconds
+        gather_timeout = max(5, min(60, self.settings.vobiz_no_input_timeout))
+        speech_end = quoteattr(self.settings.vobiz_speech_end_timeout)
         return (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             "<Response>\n"
             f'  <Gather action={action_url} method="POST" inputType="speech" '
-            f'speechModel="phone_call" language={language} executionTimeout="15" speechEndTimeout="auto">\n'
-            f"    <Play>{intro_url}</Play>\n"
+            f'speechModel="default" language={language} executionTimeout="{gather_timeout}" '
+            f"speechEndTimeout={speech_end}>\n"
+            f"    {prompt_xml}\n"
             "  </Gather>\n"
             "  <Hangup/>\n"
             "</Response>\n"
         )
 
-    def build_after_capture_xml(self) -> str:
-        thankyou_url = self.resolve_thankyou_audio_url()
-        if thankyou_url:
-            return (
-                '<?xml version="1.0" encoding="UTF-8"?>\n'
-                "<Response>\n"
-                f"  <Play>{escape(thankyou_url)}</Play>\n"
-                "  <Hangup/>\n"
-                "</Response>\n"
-            )
-        return '<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Hangup/>\n</Response>\n'
+    def build_after_capture_xml(self, call_record: CallRecord | None = None) -> str:
+        closing = "\n  ".join(self._build_closing_elements(call_record))
+        return f'<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  {closing}\n</Response>\n'
 
     async def download_recording(self, record_url: str, dest_path: Path) -> Path:
         headers = {

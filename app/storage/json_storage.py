@@ -67,6 +67,7 @@ class CallJsonStorage:
                 owner_name=request.owner_name,
                 pg_name=request.pg_name,
                 notes=request.notes,
+                script=request.script,
                 status=CallStatus.INITIATED,
                 events=[initial_event],
                 processed_event_keys=[initial_event.event_key],
@@ -188,6 +189,7 @@ class BatchJsonStorage:
         items: list[BatchItemRecord],
         campaign_id: str | None = None,
         delay_seconds: int = 3,
+        script: str | None = None,
     ) -> BatchRecord:
         with file_lock(self.file_path):
             raw_items = _read_json_list_unlocked(self.file_path)
@@ -197,6 +199,7 @@ class BatchJsonStorage:
             record = BatchRecord(
                 batch_id=batch_id,
                 campaign_id=campaign_id,
+                script=script,
                 status=BatchStatus.PENDING,
                 delay_seconds=delay_seconds,
                 items=items,

@@ -36,7 +36,7 @@
     .field.full { grid-column: 1 / -1; }
     label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
     input, select, textarea { padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.9rem; font-family: inherit; background: #fff; color: var(--text); }
-    textarea { resize: vertical; min-height: 110px; }
+    textarea { resize: vertical; min-height: 76px; }
     button, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 14px; border-radius: 7px; border: 1px solid transparent; font-size: 0.86rem; font-weight: 600; cursor: pointer; text-decoration: none; background: var(--neutral-bg); color: var(--text); }
     .btn-primary { background: var(--primary); color: #fff; }
     .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
@@ -78,11 +78,12 @@
     <header>
       <div>
         <h1>ApkaPG Vobiz Calling Console</h1>
-        <p class="subtitle">Play recording &amp; capture pickup status + caller input</p>
+        <p class="subtitle">Dynamic TTS / Audio Prompt &amp; Pickup + Caller Response Capture</p>
       </div>
       <div class="status-bar">
         <span id="modePill" class="pill">Checking...</span>
         <span id="vobizPill" class="pill">Vobiz: ...</span>
+        <span id="promptPill" class="pill">Prompt: ...</span>
         <span id="capturePill" class="pill">Capture: ...</span>
         <button id="refreshAllBtn" class="btn btn-outline btn-sm" type="button">Refresh</button>
         <a class="btn btn-outline btn-sm" href="/docs" target="_blank" rel="noopener">API Docs</a>
@@ -100,15 +101,19 @@
             </div>
             <div class="field">
               <label for="ownerInput">Owner Name (optional)</label>
-              <input id="ownerInput" type="text" placeholder="Optional label" />
+              <input id="ownerInput" type="text" placeholder="Used in {owner_name}" />
             </div>
             <div class="field">
               <label for="pgInput">PG Name (optional)</label>
-              <input id="pgInput" type="text" placeholder="Optional label" />
+              <input id="pgInput" type="text" placeholder="Used in {pg_name}" />
             </div>
             <div class="field">
               <label for="campaignInput">Campaign ID (optional)</label>
               <input id="campaignInput" type="text" placeholder="e.g. blr-nov" />
+            </div>
+            <div class="field full">
+              <label for="scriptInput">Custom Script for This Call (optional)</label>
+              <textarea id="scriptInput" placeholder="Leave blank to use VOBIZ_INTRO_TEXT from .env (supports {owner_name} and {pg_name})"></textarea>
             </div>
           </div>
           <div class="actions">
@@ -192,8 +197,9 @@
             <div class="form-grid">
               <div class="field"><label for="batchCampaignInput">Batch / Campaign ID</label><input id="batchCampaignInput" type="text" placeholder="e.g. batch-01" /></div>
               <div class="field"><label for="batchDelayInput">Gap Between Calls (sec)</label><input id="batchDelayInput" type="number" min="0" max="120" value="3" /></div>
+              <div class="field full"><label for="batchScriptInput">Batch Default Script (optional, supports {owner_name} and {pg_name})</label><textarea id="batchScriptInput" placeholder="Leave blank to use .env or per-row 'script' column in CSV"></textarea></div>
               <div class="field full"><label for="batchFileInput">Upload CSV File (optional)</label><input id="batchFileInput" type="file" accept=".csv,.txt" /></div>
-              <div class="field full"><label for="batchTextInput">Or Paste Numbers / CSV</label><textarea id="batchTextInput" placeholder="phone_number,owner_name,pg_name&#10;9876543210,Ramesh,Sunrise PG&#10;9876543211"></textarea></div>
+              <div class="field full"><label for="batchTextInput">Or Paste Numbers / CSV (columns: phone_number,owner_name,pg_name,script)</label><textarea id="batchTextInput" style="min-height:110px;" placeholder="phone_number,owner_name,pg_name,script&#10;9876543210,Ramesh,Sunrise PG,&#10;9876543211,Suresh,Lake View PG,Hello Suresh calling from ApkaPG regarding Lake View PG"></textarea></div>
             </div>
             <div class="actions"><button id="batchSubmitBtn" class="btn btn-primary" type="submit">Start Sequential Batch</button></div>
             <div id="batchBanner" class="alert"></div>
@@ -244,6 +250,10 @@
         const v = document.getElementById("vobizPill");
         v.className = s.vobiz.ready ? "pill ok" : "pill warn";
         v.textContent = s.vobiz.ready ? "Vobiz: Ready" : "Vobiz: Setup Needed";
+
+        const p = document.getElementById("promptPill");
+        p.className = "pill info";
+        p.textContent = "Prompt: " + (s.vobiz.prompt_type === "speak_tts" ? "Speak (TTS)" : "Audio (MP3)");
 
         const c = document.getElementById("capturePill");
         c.className = "pill info";
@@ -352,6 +362,7 @@
             owner_name: document.getElementById("ownerInput").value.trim() || null,
             pg_name: document.getElementById("pgInput").value.trim() || null,
             campaign_id: document.getElementById("campaignInput").value.trim() || null,
+            script: document.getElementById("scriptInput").value.trim() || null,
           }),
         });
         showBanner(b, "ok", "Call initiated: " + res.call.call_id + " (" + res.call.status + ")");
@@ -376,6 +387,7 @@
           body: JSON.stringify({
             campaign_id: document.getElementById("batchCampaignInput").value.trim() || null,
             delay_seconds: parseInt(document.getElementById("batchDelayInput").value || "3", 10),
+            script: document.getElementById("batchScriptInput").value.trim() || null,
             csv_content: content, auto_start: true,
           }),
         });

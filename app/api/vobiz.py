@@ -86,7 +86,7 @@ async def vobiz_answer_webhook(
     params = await _parse_vobiz_params(request)
     logger.info("Vobiz /answer callback (%s): call_id=%s CallUUID=%s", request.method, call_id, params.get("CallUUID"))
     try:
-        service.process_status_event(
+        call_record, _ = service.process_status_event(
             call_id=call_id,
             payload={**params, "status": "answered", "source": "vobiz"},
         )
@@ -94,7 +94,10 @@ async def vobiz_answer_webhook(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     try:
-        xml_body = VobizService(settings=settings).build_answer_xml(call_id=call_id)
+        xml_body = VobizService(settings=settings).build_answer_xml(
+            call_id=call_id,
+            call_record=call_record,
+        )
     except VobizError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return Response(content=xml_body, media_type="application/xml")
@@ -109,43 +112,18 @@ async def vobiz_gather_webhook(
 ) -> Response:
     params = await _parse_vobiz_params(request)
     logger.info(
-        "Vobiz /gather callback (%s): call_id=%s InputType=%s Speech=%r Digits=%r",
+        "Vobiz /gather callback (%s): call_id=%s params=%s",
         request.method,
         call_id or params.get("call_id"),
-        params.get("InputType"),
-        params.get("Speech"),
-        params.get("Digits"),
+        {k: v for k, v in params.items() if k != "token"},
     )
+    resolved_id = call_id or params.get("call_id")
     try:
-        service.save_speech_input(call_id=call_id or params.get("call_id"), form_data=params)
+        call_record = service.save_speech_input(call_id=resolved_id, form_data=params)
     except CallNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return Response(
-        content=VobizService(settings=settings).build_after_capture_xml(),
-        media_type="application/xml",
-    )
-
-
-@router.api_route("/recording-action", methods=["GET", "POST"], dependencies=[Depends(_verify_vobiz_token)])
-async def vobiz_recording_action_webhook(
-    request: Request,
-    call_id: str | None = Query(default=None),
-    service: CallingService = Depends(get_calling_service),
-    settings: Settings = Depends(get_settings),
-) -> Response:
-    """Synchronous action URL after <Record> completes; plays thank-you and hangs up."""
-    params = await _parse_vobiz_params(request)
-    logger.info("Vobiz /recording-action callback: call_id=%s RecordUrl=%s", call_id or params.get("call_id"), params.get("RecordUrl"))
-    if params.get("RecordUrl"):
-        try:
-            await service.save_recording_input(
-                call_id=call_id or params.get("call_id"),
-                form_data=params,
-            )
-        except (CallNotFoundError, VobizError):
-            pass
-    return Response(
-        content=VobizService(settings=settings).build_after_capture_xml(),
+        content=VobizService(settings=settings).build_after_capture_xml(call_record=call_record),
         media_type="application/xml",
     )
 
@@ -157,7 +135,11 @@ async def vobiz_recording_ready_webhook(
     service: CallingService = Depends(get_calling_service),
 ) -> dict[str, Any]:
     params = await _parse_vobiz_params(request)
-    logger.info("Vobiz /recording-ready callback: call_id=%s RecordUrl=%s", call_id or params.get("call_id"), params.get("RecordUrl"))
+    logger.info(
+        "Vobiz /recording-ready callback: call_id=%s params=%s",
+        call_id or params.get("call_id"),
+        {k: v for k, v in params.items() if k != "token"},
+    )
     try:
         record, saved_path = await service.save_recording_input(
             call_id=call_id or params.get("call_id"),

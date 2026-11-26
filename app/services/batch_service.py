@@ -27,6 +27,7 @@ _PHONE_HEADERS = {"phone_number", "phone", "mobile", "number", "contact", "conta
 _OWNER_HEADERS = {"owner_name", "owner", "name", "contact_name"}
 _PG_HEADERS = {"pg_name", "pg", "property_name", "property"}
 _NOTES_HEADERS = {"notes", "note", "remarks"}
+_SCRIPT_HEADERS = {"script", "message", "prompt", "text"}
 
 
 class BatchNotFoundError(Exception):
@@ -67,15 +68,18 @@ def parse_contacts_from_text(raw_content: str) -> list[BatchItemRecord]:
             notes = normalize_optional_text(
                 next((lowered[h] for h in _NOTES_HEADERS if lowered.get(h)), None)
             )
-            items.append(_build_item(idx, raw_phone, owner_name, pg_name, notes, seen_phones))
+            script = normalize_optional_text(
+                next((lowered[h] for h in _SCRIPT_HEADERS if lowered.get(h)), None)
+            )
+            items.append(_build_item(idx, raw_phone, owner_name, pg_name, notes, script, seen_phones))
     else:
         for idx, line in enumerate(lines, start=1):
             cols = [c.strip() for c in next(csv.reader([line]))]
             raw_phone = cols[0] if len(cols) > 0 else ""
             owner_name = normalize_optional_text(cols[1]) if len(cols) > 1 else None
             pg_name = normalize_optional_text(cols[2]) if len(cols) > 2 else None
-            notes = normalize_optional_text(cols[3]) if len(cols) > 3 else None
-            items.append(_build_item(idx, raw_phone, owner_name, pg_name, notes, seen_phones))
+            script = normalize_optional_text(cols[3]) if len(cols) > 3 else None
+            items.append(_build_item(idx, raw_phone, owner_name, pg_name, None, script, seen_phones))
 
     if not any(item.status == BatchItemStatus.PENDING for item in items):
         raise BatchValidationError("No valid phone numbers found.")
@@ -88,6 +92,7 @@ def _build_item(
     owner_name: str | None,
     pg_name: str | None,
     notes: str | None,
+    script: str | None,
     seen_phones: set[str],
 ) -> BatchItemRecord:
     try:
@@ -99,6 +104,7 @@ def _build_item(
             owner_name=owner_name,
             pg_name=pg_name,
             notes=notes,
+            script=script,
             status=BatchItemStatus.INVALID,
             error=str(exc),
         )
@@ -111,6 +117,7 @@ def _build_item(
             owner_name=owner_name,
             pg_name=pg_name,
             notes=notes,
+            script=script,
             status=BatchItemStatus.SKIPPED_DUPLICATE,
             error="Duplicate phone number in batch.",
         )
@@ -123,6 +130,7 @@ def _build_item(
         owner_name=owner_name,
         pg_name=pg_name,
         notes=notes,
+        script=script,
         status=BatchItemStatus.PENDING,
     )
 
@@ -162,6 +170,7 @@ class BatchRunnerManager:
             items=items,
             campaign_id=request.campaign_id,
             delay_seconds=request.delay_seconds,
+            script=request.script,
         )
         if request.auto_start:
             self.start_batch(settings=settings, batch_id=batch.batch_id)
@@ -330,6 +339,7 @@ class BatchRunnerManager:
                             pg_name=item.pg_name,
                             campaign_id=batch.campaign_id,
                             notes=item.notes,
+                            script=item.script or batch.script,
                         )
                     )
                     item.call_id = call_record.call_id

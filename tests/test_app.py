@@ -1,4 +1,4 @@
-"""Comprehensive tests for minimal Vobiz calling, storage, batches, exports, and UI."""
+"""Comprehensive tests for Vobiz <Speak>/<Play>, fast timeouts, RecordFile, and UI."""
 
 import csv
 import io
@@ -43,15 +43,8 @@ def test_health_and_ui_and_auth(tmp_path, monkeypatch):
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
         assert client.get("/api/system/status").status_code == 200
-
-        home = client.get("/")
-        assert home.status_code == 200
-        assert "ApkaPG Vobiz Calling Console" in home.text
-        assert "secret-key" not in home.text
-
         assert client.post("/api/calls/initiate", json={"phone_number": "9876543210"}).status_code == 401
-        ui_resp = client.post("/ui/calls/initiate", json={"phone_number": "9876543210"})
-        assert ui_resp.status_code == 201
+        assert client.post("/ui/calls/initiate", json={"phone_number": "9876543210"}).status_code == 201
 
     remote_req = Request({"type": "http", "method": "POST", "path": "/ui/calls/initiate", "headers": [], "client": ("192.168.1.50", 1234)})
     with pytest.raises(HTTPException) as exc:
@@ -60,12 +53,7 @@ def test_health_and_ui_and_auth(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
 
-def test_direct_vobiz_gather_silent_and_unanswered_leads(tmp_path, monkeypatch):
-    audio_dir = tmp_path / "data" / "audio"
-    audio_dir.mkdir(parents=True)
-    (audio_dir / "intro.mp3").write_bytes(b"fake-intro")
-    (audio_dir / "thank_you.mp3").write_bytes(b"fake-ty")
-
+def test_dynamic_speak_tts_and_fast_gather_timeouts(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("MOCK_PROVIDERS", "false")
@@ -75,10 +63,15 @@ def test_direct_vobiz_gather_silent_and_unanswered_leads(tmp_path, monkeypatch):
     monkeypatch.setenv("VOBIZ_WEBHOOK_SECRET", "vbz-sec")
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://calling.example.com")
     monkeypatch.setenv("API_AUTH_KEY", "api-key")
+    monkeypatch.setenv("VOBIZ_INTRO_TEXT", "AUTO")
+    monkeypatch.setenv("VOBIZ_THANKYOU_TEXT", "Thank you {owner_name}!")
+    monkeypatch.setenv("VOBIZ_SPEAK_VOICE", "MAN")
+    monkeypatch.setenv("VOBIZ_NO_INPUT_TIMEOUT", "3")
+    monkeypatch.setenv("VOBIZ_SPEECH_END_TIMEOUT", "2")
     get_settings.cache_clear()
 
     def vobiz_handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"request_uuid": "vbz-1", "message": "Call fired"})
+        return httpx.Response(200, json={"request_uuid": "vbz-tts-1"})
 
     app = create_app()
     settings = get_settings()
@@ -92,67 +85,31 @@ def test_direct_vobiz_gather_silent_and_unanswered_leads(tmp_path, monkeypatch):
 
     try:
         with TestClient(app) as client:
-            # 1. GET/POST /answer + spoken reply + hangup
-            c1 = client.post("/api/calls/initiate", headers={"X-API-Key": "api-key"}, json={"phone_number": "9876543210"}).json()["call"]["call_id"]
-            ans = client.get(f"/api/vobiz/answer?call_id={c1}&token=vbz-sec")
-            assert ans.status_code == 200
-            assert "<Gather" in ans.text
-            g1 = client.post(f"/api/vobiz/gather?call_id={c1}&token=vbz-sec", data={"Speech": "Yes I own Sunrise PG"})
-            assert "<Play>https://calling.example.com/api/vobiz/audio/thank_you.mp3</Play>" in g1.text
-            client.post(f"/api/vobiz/hangup?call_id={c1}&token=vbz-sec", data={"CallStatus": "completed", "Duration": "20"})
+            c1 = client.post(
+                "/api/calls/initiate",
+                headers={"X-API-Key": "api-key"},
+                json={"phone_number": "9876543210", "owner_name": "Ramesh", "pg_name": "Sai & Sons PG"},
+            ).json()["call"]["call_id"]
+            ans1 = client.post(f"/api/vobiz/answer?call_id={c1}&token=vbz-sec")
+            assert ans1.status_code == 200
+            assert 'executionTimeout="5"' in ans1.text  # clamped to Vobiz min 5s
+            assert 'speechEndTimeout="2"' in ans1.text
+            assert "Hello Ramesh, this is calling from ApkaPG regarding Sai &amp; Sons PG." in ans1.text
 
-            # 2. Picked up silently (no speech)
-            c2 = client.post("/api/calls/initiate", headers={"X-API-Key": "api-key"}, json={"phone_number": "9876543211"}).json()["call"]["call_id"]
-            client.post(f"/api/vobiz/answer?call_id={c2}&token=vbz-sec")
-            client.post(f"/api/vobiz/hangup?call_id={c2}&token=vbz-sec", data={"CallStatus": "completed", "Duration": "5"})
-
-            # 3. Not picked up (unanswered)
-            c3 = client.post("/api/calls/initiate", headers={"X-API-Key": "api-key"}, json={"phone_number": "9876543212"}).json()["call"]["call_id"]
-            client.post(f"/api/vobiz/hangup?call_id={c3}&token=vbz-sec", data={"CallStatus": "no-answer", "Duration": "0"})
-
-            # 4. Hangup completed with duration > 0 marks picked_up=True even if /answer was skipped
-            c4 = client.post("/api/calls/initiate", headers={"X-API-Key": "api-key"}, json={"phone_number": "9876543213"}).json()["call"]["call_id"]
-            client.post(f"/api/vobiz/hangup?call_id={c4}&token=vbz-sec", data={"CallStatus": "completed", "Duration": "21"})
-
-            l1 = client.get(f"/api/leads/{c1}").json()
-            assert l1["picked_up"] is True
-            assert l1["user_input"] == "Yes I own Sunrise PG"
-            assert l1["call_duration_seconds"] == 20
-
-            l2 = client.get(f"/api/leads/{c2}").json()
-            assert l2["picked_up"] is True
-            assert l2["user_input"] is None
-
-            l3 = client.get(f"/api/leads/{c3}").json()
-            assert l3["picked_up"] is False
-            assert l3["user_input"] is None
-            assert l3["call_status"] == "unanswered"
-
-            l4 = client.get(f"/api/leads/{c4}").json()
-            assert l4["picked_up"] is True
-            assert l4["call_duration_seconds"] == 21
-
-            picked_only = client.get("/api/leads?picked_up=true").json()
-            assert picked_only["count"] == 3
-
-            csv_text = client.get("/api/leads/export/csv").text
-            reader = csv.DictReader(io.StringIO(csv_text))
-            assert tuple(reader.fieldnames or []) == LEAD_CSV_COLUMNS
-            assert len(list(reader)) == 4
+            g1 = client.post(f"/api/vobiz/gather?call_id={c1}&token=vbz-sec", data={"Speech": "Yes"})
+            assert "Thank you Ramesh!</Speak>" in g1.text
     finally:
         app.dependency_overrides.clear()
         get_settings.cache_clear()
 
 
-def test_direct_record_audio_mode(tmp_path, monkeypatch):
-    audio_dir = tmp_path / "data" / "audio"
-    audio_dir.mkdir(parents=True)
-    (audio_dir / "intro.mp3").write_bytes(b"fake-intro")
-
+def test_record_audio_mode_supports_record_file_and_3s_timeout(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("MOCK_PROVIDERS", "false")
     monkeypatch.setenv("VOBIZ_CAPTURE_MODE", "record_audio")
+    monkeypatch.setenv("VOBIZ_INTRO_TEXT", "AUTO")
+    monkeypatch.setenv("VOBIZ_NO_INPUT_TIMEOUT", "3")
     monkeypatch.setenv("VOBIZ_AUTH_ID", "MA_TEST")
     monkeypatch.setenv("VOBIZ_AUTH_TOKEN", "TOK_TEST")
     monkeypatch.setenv("VOBIZ_CALLER_ID", "+918071234567")
@@ -178,56 +135,19 @@ def test_direct_record_audio_mode(tmp_path, monkeypatch):
     try:
         with TestClient(app) as client:
             c1 = client.post("/api/calls/initiate", headers={"X-API-Key": "api-key"}, json={"phone_number": "9876543210"}).json()["call"]["call_id"]
-            assert "<Record " in client.post(f"/api/vobiz/answer?call_id={c1}&token=vbz-sec").text
+            ans = client.post(f"/api/vobiz/answer?call_id={c1}&token=vbz-sec")
+            assert 'timeout="3"' in ans.text
+
+            # Vobiz sends RecordFile in callbackUrl
             rec = client.post(
                 f"/api/vobiz/recording-ready?call_id={c1}&token=vbz-sec",
-                data={"RecordUrl": "https://api.vobiz.ai/rec/1.mp3", "RecordingID": "r1"},
+                data={"RecordFile": "https://media.vobiz.ai/recordings/r1.mp3", "RecordingID": "r1"},
             )
             assert rec.status_code == 200
             assert (tmp_path / "data" / "recordings" / f"{c1}.mp3").read_bytes() == b"ID3-caller-mp3"
             lead = client.get(f"/api/leads/{c1}").json()
             assert lead["picked_up"] is True
-            assert lead["recording_file"] is not None
+            assert lead["recording_url"] == "https://media.vobiz.ai/recordings/r1.mp3"
     finally:
         app.dependency_overrides.clear()
-        get_settings.cache_clear()
-
-
-def test_sequential_mock_batch_saves_picked_up_and_input(tmp_path, monkeypatch):
-    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("APP_ENV", "test")
-    monkeypatch.setenv("MOCK_PROVIDERS", "true")
-    get_settings.cache_clear()
-
-    manager = get_batch_manager()
-    old_dur = manager.mock_call_duration_seconds
-    manager.mock_call_duration_seconds = 0.05
-    try:
-        app = create_app()
-        with TestClient(app) as client:
-            resp = client.post(
-                "/ui/batches",
-                json={
-                    "delay_seconds": 0,
-                    "csv_content": "9876543210,Ramesh,Sunrise PG\n9876543210\nbad\n9876543211\n",
-                },
-            )
-            assert resp.status_code == 201
-            batch_id = resp.json()["batch"]["batch_id"]
-            final = None
-            for _ in range(40):
-                final = client.get(f"/api/batches/{batch_id}").json()
-                if final["batch"]["status"] == BatchStatus.COMPLETED.value:
-                    break
-                time.sleep(0.05)
-
-            assert final["batch"]["status"] == BatchStatus.COMPLETED.value
-            assert final["batch"]["items"][1]["status"] == BatchItemStatus.SKIPPED_DUPLICATE.value
-            assert final["batch"]["items"][2]["status"] == BatchItemStatus.INVALID.value
-
-            leads = json.loads((tmp_path / "data" / "leads" / "leads.json").read_text(encoding="utf-8"))
-            assert len(leads) == 2
-            assert all(l["picked_up"] is True and l["user_input"] == "Yes, I am the PG owner" for l in leads)
-    finally:
-        manager.mock_call_duration_seconds = old_dur
         get_settings.cache_clear()

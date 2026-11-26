@@ -102,6 +102,7 @@ class CallingService:
             vobiz_result = await self.vobiz_service.trigger_outbound_call(
                 call_id=call_record.call_id,
                 phone_number=request.phone_number,
+                has_custom_script=bool(request.script),
             )
         except VobizError as exc:
             failure_event = CallEventEntry(
@@ -268,7 +269,7 @@ class CallingService:
         if record is None:
             raise CallNotFoundError(f"No matching call found for call_id={call_id}.")
 
-        record_url = str(form_data.get("RecordUrl") or "").strip() or None
+        record_url = str(form_data.get("RecordUrl") or form_data.get("RecordFile") or "").strip() or None
         recording_id = str(form_data.get("RecordingID") or "").strip()
 
         saved_path: Path | None = None

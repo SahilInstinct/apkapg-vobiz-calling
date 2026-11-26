@@ -43,6 +43,12 @@ class Settings(BaseSettings):
         default="gather_speech"
     )
     vobiz_speech_language: str = Field(default="en-IN")
+    vobiz_speak_voice: Literal["WOMAN", "MAN"] = Field(default="WOMAN")
+    vobiz_no_input_timeout: int = Field(default=3, ge=2, le=180)
+    vobiz_speech_end_timeout: str = Field(default="2")
+    vobiz_max_record_seconds: int = Field(default=30, ge=5, le=300)
+    vobiz_intro_text: str = Field(default="")
+    vobiz_thankyou_text: str = Field(default="")
     vobiz_intro_audio_url: str = Field(default="")
     vobiz_thankyou_audio_url: str = Field(default="")
 

@@ -31,13 +31,14 @@ class CallInitiateRequest(BaseModel):
     pg_name: str | None = Field(default=None, max_length=160)
     campaign_id: str | None = Field(default=None, max_length=80)
     notes: str | None = Field(default=None, max_length=500)
+    script: str | None = Field(default=None, max_length=1000)
 
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, value: str) -> str:
         return normalize_phone_number(value)
 
-    @field_validator("owner_name", "pg_name", "campaign_id", "notes", mode="before")
+    @field_validator("owner_name", "pg_name", "campaign_id", "notes", "script", mode="before")
     @classmethod
     def clean_optional_strings(cls, value: str | None) -> str | None:
         return normalize_optional_text(value)
@@ -60,6 +61,7 @@ class CallRecord(BaseModel):
     owner_name: str | None = None
     pg_name: str | None = None
     notes: str | None = None
+    script: str | None = None
     status: CallStatus = Field(default=CallStatus.INITIATED)
     duration_seconds: int | None = Field(default=None, ge=0)
     failure_reason: str | None = None

@@ -35,11 +35,12 @@ class BatchCreateRequest(BaseModel):
     campaign_id: str | None = Field(default=None, max_length=80)
     csv_content: str = Field(..., min_length=1)
     delay_seconds: int = Field(default=3, ge=0, le=120)
+    script: str | None = Field(default=None, max_length=1000)
     auto_start: bool = Field(default=True)
 
-    @field_validator("campaign_id", mode="before")
+    @field_validator("campaign_id", "script", mode="before")
     @classmethod
-    def clean_campaign(cls, value: str | None) -> str | None:
+    def clean_optional_fields(cls, value: str | None) -> str | None:
         return normalize_optional_text(value)
 
 
@@ -50,6 +51,7 @@ class BatchItemRecord(BaseModel):
     owner_name: str | None = None
     pg_name: str | None = None
     notes: str | None = None
+    script: str | None = None
     status: BatchItemStatus = Field(default=BatchItemStatus.PENDING)
     call_id: str | None = None
     error: str | None = None
@@ -59,6 +61,7 @@ class BatchItemRecord(BaseModel):
 class BatchRecord(BaseModel):
     batch_id: str
     campaign_id: str | None = None
+    script: str | None = None
     status: BatchStatus = Field(default=BatchStatus.PENDING)
     delay_seconds: int = Field(default=3, ge=0, le=120)
     items: list[BatchItemRecord] = Field(default_factory=list)
