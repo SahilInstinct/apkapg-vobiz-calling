@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     vobiz_capture_mode: Literal["gather_speech", "record_audio"] = Field(
         default="gather_speech"
     )
+    vobiz_allow_interrupt: bool = Field(default=False)
     vobiz_speech_language: str = Field(default="en-IN")
     vobiz_speak_voice: Literal["WOMAN", "MAN"] = Field(default="WOMAN")
     vobiz_no_input_timeout: int = Field(default=3, ge=2, le=180)

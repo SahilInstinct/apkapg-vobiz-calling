@@ -53,7 +53,7 @@ def test_health_and_ui_and_auth(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
 
-def test_dynamic_speak_tts_and_fast_gather_timeouts(tmp_path, monkeypatch):
+def test_dynamic_speak_tts_and_uninterrupted_gather(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("MOCK_PROVIDERS", "false")
@@ -92,9 +92,10 @@ def test_dynamic_speak_tts_and_fast_gather_timeouts(tmp_path, monkeypatch):
             ).json()["call"]["call_id"]
             ans1 = client.post(f"/api/vobiz/answer?call_id={c1}&token=vbz-sec")
             assert ans1.status_code == 200
-            assert 'executionTimeout="5"' in ans1.text  # clamped to Vobiz min 5s
+            assert 'executionTimeout="5"' in ans1.text
             assert 'speechEndTimeout="2"' in ans1.text
             assert "Hello Ramesh, this is calling from ApkaPG regarding Sai &amp; Sons PG." in ans1.text
+            assert ans1.text.index("</Speak>") < ans1.text.index("<Gather")
 
             g1 = client.post(f"/api/vobiz/gather?call_id={c1}&token=vbz-sec", data={"Speech": "Yes"})
             assert "Thank you Ramesh!</Speak>" in g1.text
@@ -138,7 +139,6 @@ def test_record_audio_mode_supports_record_file_and_3s_timeout(tmp_path, monkeyp
             ans = client.post(f"/api/vobiz/answer?call_id={c1}&token=vbz-sec")
             assert 'timeout="3"' in ans.text
 
-            # Vobiz sends RecordFile in callbackUrl
             rec = client.post(
                 f"/api/vobiz/recording-ready?call_id={c1}&token=vbz-sec",
                 data={"RecordFile": "https://media.vobiz.ai/recordings/r1.mp3", "RecordingID": "r1"},
